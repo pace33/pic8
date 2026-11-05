@@ -1,0 +1,43 @@
+name: Verify training GitHub page
+on:
+  push:
+    branches: [main]
+    paths: ['training/**', '.github/workflows/training-page.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PAGE_URL: https://pace33.github.io/pic8/training/
+    steps:
+      - name: Mark deployment check pending
+        run: gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=training-page -f description="Waiting for public GitHub Pages" -f target_url="$PAGE_URL"
+      - name: Check public page and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..36}; do
+            if curl -fsSL --max-time 15 "$PAGE_URL?sha=$GITHUB_SHA" -o /tmp/training-page.html &&
+               grep -q 'github-pages-training-20261105' /tmp/training-page.html &&
+               curl -fsSL --max-time 15 "${PAGE_URL}app.js?sha=$GITHUB_SHA" -o /tmp/training-app.js &&
+               grep -q 'github-pages-training-20261105' /tmp/training-app.js &&
+               curl -fsSL --max-time 15 "${PAGE_URL}style.css?sha=$GITHUB_SHA" -o /tmp/training-style.css; then
+              echo "Public GitHub page and assets verified."
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+      - name: Report verified result
+        if: always()
+        env:
+          VERIFY_RESULT: ${{ job.status }}
+        run: |
+          state=failure
+          if [ "$VERIFY_RESULT" = success ]; then state=success; fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context=training-page -f description="Public GitHub Pages verification: $state" -f target_url="$PAGE_URL"
