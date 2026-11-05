@@ -46,6 +46,9 @@ jobs:
           status="$(curl -sS --max-time 30 -o /tmp/admin-unauthorized.json -w '%{http_code}' -H 'Origin: https://pace33.github.io' "$API_BASE/manage")"
           test "$status" = 401
           python3 -c "import json; d=json.load(open('/tmp/admin-unauthorized.json')); assert 'participants' not in d"
+          status="$(curl -sS --max-time 30 -D /tmp/admin-preflight-headers -o /dev/null -w '%{http_code}' -X OPTIONS -H 'Origin: https://pace33.github.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type,authorization' "$API_BASE/admin/login")"
+          test "$status" = 204
+          grep -iq 'access-control-allow-origin: https://pace33.github.io' /tmp/admin-preflight-headers
           status="$(curl -sS --max-time 30 -o /tmp/admin-wrong-password.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"password":"deployment-negative-test"}' "$API_BASE/admin/login")"
           test "$status" = 401
       - name: Report verified result
