@@ -14,25 +14,40 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       PAGE_URL: https://pace33.github.io/pic8/training/
+      API_BASE: https://teacher-workshop-jingu-2026.lejinku.chatgpt.site/api
     steps:
       - name: Mark deployment check pending
-        run: gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=training-page -f description="Waiting for public GitHub Pages" -f target_url="$PAGE_URL"
-      - name: Check public page and assets
+        run: gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=training-page -f description="Waiting for connected registration and admin page" -f target_url="$PAGE_URL"
+      - name: Verify public page and password administration assets
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..36}; do
             if curl -fsSL --max-time 15 "$PAGE_URL?sha=$GITHUB_SHA" -o /tmp/training-page.html &&
-               grep -q 'github-pages-training-20261105' /tmp/training-page.html &&
+               grep -q 'github-pages-training-admin-20261106-v1' /tmp/training-page.html &&
+               grep -q 'admin-menu-button' /tmp/training-page.html &&
                curl -fsSL --max-time 15 "${PAGE_URL}app.js?sha=$GITHUB_SHA" -o /tmp/training-app.js &&
-               grep -q 'github-pages-training-20261105' /tmp/training-app.js &&
-               curl -fsSL --max-time 15 "${PAGE_URL}style.css?sha=$GITHUB_SHA" -o /tmp/training-style.css; then
-              echo "Public GitHub page and assets verified."
-              exit 0
+               grep -q "$API_BASE/registrations" /tmp/training-app.js &&
+               curl -fsSL --max-time 15 "${PAGE_URL}manage.html?sha=$GITHUB_SHA" -o /tmp/training-manage.html &&
+               grep -q 'admin-login-form' /tmp/training-manage.html &&
+               curl -fsSL --max-time 15 "${PAGE_URL}admin.js?sha=$GITHUB_SHA" -o /tmp/training-admin.js &&
+               grep -q 'password-admin-20261106-v1' /tmp/training-admin.js; then
+              echo "Connected public registration and admin assets verified."
+              break
             fi
+            if [ "$attempt" = 36 ]; then exit 1; fi
             sleep 10
           done
-          exit 1
+          node --check /tmp/training-app.js
+          node --check /tmp/training-admin.js
+          curl -fsSL --max-time 30 -D /tmp/api-headers -H 'Origin: https://pace33.github.io' "$API_BASE/registrations" -o /tmp/api-status.json
+          grep -iq 'access-control-allow-origin: https://pace33.github.io' /tmp/api-headers
+          python3 -c "import json; d=json.load(open('/tmp/api-status.json')); assert d['capacity']==20 and d['participants']==[] and d['count'] is None"
+          status="$(curl -sS --max-time 30 -o /tmp/admin-unauthorized.json -w '%{http_code}' -H 'Origin: https://pace33.github.io' "$API_BASE/manage")"
+          test "$status" = 401
+          python3 -c "import json; d=json.load(open('/tmp/admin-unauthorized.json')); assert 'participants' not in d"
+          status="$(curl -sS --max-time 30 -o /tmp/admin-wrong-password.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"password":"deployment-negative-test"}' "$API_BASE/admin/login")"
+          test "$status" = 401
       - name: Report verified result
         if: always()
         env:
@@ -40,4 +55,4 @@ jobs:
         run: |
           state=failure
           if [ "$VERIFY_RESULT" = success ]; then state=success; fi
-          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context=training-page -f description="Public GitHub Pages verification: $state" -f target_url="$PAGE_URL"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context=training-page -f description="Connected registration and admin verification: $state" -f target_url="$PAGE_URL"
