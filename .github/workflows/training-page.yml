@@ -28,6 +28,9 @@ jobs:
                grep -q 'admin-menu-button' /tmp/training-page.html &&
                curl -fsSL --max-time 15 "${PAGE_URL}app.js?sha=$GITHUB_SHA" -o /tmp/training-app.js &&
                grep -q "$API_BASE/registrations" /tmp/training-app.js &&
+               grep -Fq '.slice(0,4)' /tmp/training-app.js &&
+               ! grep -Fq '신청 순서와 관계없이 담당자가 참가자를 선정합니다.' /tmp/training-app.js &&
+               grep -Fq 'pattern="[0-9]{4}"' /tmp/training-page.html &&
                curl -fsSL --max-time 15 "${PAGE_URL}manage.html?sha=$GITHUB_SHA" -o /tmp/training-manage.html &&
                grep -q 'admin-login-form' /tmp/training-manage.html &&
                curl -fsSL --max-time 15 "${PAGE_URL}admin.js?sha=$GITHUB_SHA" -o /tmp/training-admin.js &&
@@ -51,6 +54,10 @@ jobs:
           grep -iq 'access-control-allow-origin: https://pace33.github.io' /tmp/admin-preflight-headers
           status="$(curl -sS --max-time 30 -o /tmp/admin-wrong-password.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"password":"deployment-negative-test"}' "$API_BASE/admin/login")"
           test "$status" = 401
+          status="$(curl -sS --max-time 30 -o /tmp/pin4-format.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"action":"lookup","region":"충북","school":"배포검증","name":"연결점검","pin":"9876"}' "$API_BASE/registrations")"
+          test "$status" = 404
+          status="$(curl -sS --max-time 30 -o /tmp/pin6-format.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"action":"register","region":"충북","school":"배포검증","name":"연결점검","pin":"123456"}' "$API_BASE/registrations")"
+          test "$status" = 400
       - name: Report verified result
         if: always()
         env:
