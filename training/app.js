@@ -1,7 +1,8 @@
 'use strict';
 // github-pages-training-admin-20261106-v1
 // Configure a shared API before opening real registration. No device-local records.
-const REGISTRATION_ENDPOINT = 'https://teacher-workshop-jingu-2026.lejinku.chatgpt.site/api/registrations';
+let REGISTRATION_ENDPOINT = '';
+window.Pic8Api.resolve().then(base => { REGISTRATION_ENDPOINT = base + '/registrations'; refresh(); });
 const el=id=>document.getElementById(id);
 let mode='register',busy=false,verified=null,participant=null,connected=false;
 function message(text,type='error'){const box=el('form-message');box.textContent=text;box.className='message '+type;box.hidden=!text;}

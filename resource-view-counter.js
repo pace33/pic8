@@ -1,8 +1,8 @@
 /* 배움 링크 자료별 조회수 모듈
  * 원본 웹앱의 자료 버튼에 data-resource-id="고유한-자료ID"를 지정하고
  * <script src="./resource-view-counter.js" defer></script>를 추가해 사용합니다.
- * 공용 조회수 저장 API가 있다면 script에 data-views-api="/api/resource-views"를 지정합니다.
- * 미지정 시 이 브라우저에서만 조회수가 저장되며 "이 기기 조회수"로 표시됩니다.
+ * 기본 공용 저장소는 에이두 데이터 서버의 /db-pic8/api/resource-views 입니다.
+ * 다른 저장소는 script의 data-views-api로 명시적으로 지정할 수 있습니다.
  */
 (() => {
   'use strict';
@@ -10,7 +10,7 @@
   const script = document.currentScript;
   const apiBase = script && script.dataset.viewsApi
     ? script.dataset.viewsApi.replace(/\/$/, '')
-    : '';
+    : 'https://aiedue.ddns.net/db-pic8/api/resource-views';
   const keyPrefix = 'aiedue.pic8.views.v1.';
   const textFor = count => Number.isSafeInteger(count) && count >= 0 ? count.toLocaleString('ko-KR') : '—';
   const escapeId = id => encodeURIComponent(id);

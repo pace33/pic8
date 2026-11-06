@@ -1,40 +1,28 @@
-# 배움 링크 자료별 조회수 (연동 파일)
+# 자료별 공유 조회수 연결
 
-이 폴더의 `index.html`은 **외부 웹앱을 iframe으로 표시하는 연결 페이지**입니다.
-실제 '필요한 자료' 버튼은 `https://learning-webapp-library.lejinku.chatgpt.site/` 안에 있습니다.
-브라우저 보안(다른 출처 iframe) 때문에 **이 GitHub 파일만 수정해 내부 버튼 클릭을 읽을 수는 없습니다.**
-
-## 추가한 코드
-`resource-view-counter.js` : 실제 웹앱의 HTML에서 사용할 조회수 표시/클릭 집계 모듈.
-
-### 원본 앱에 붙이는 방법
-자료 카드/버튼에 고유 ID를 부여합니다:
+`resource-view-counter.js`의 기본 저장 API는 실제 에이두 데이터 서버의
+`https://aiedue.ddns.net/db-pic8/api/resource-views`입니다.
+서버 SQLite에서 자료 ID별 GET과 원자적 POST +1을 처리하며, 임의 수치나 기기별 수치를 공용 값처럼 표시하지 않습니다. 실패 배지는 `—`입니다.
 
 ```html
-<a href="https://example.org/material" data-resource-id="material-001" target="_blank">
-  필요한 자료
-</a>
-<script src="https://aiedue.ddns.net/pic/8/resource-view-counter.js" defer></script>
+<a href="https://example.org/material" data-resource-id="material-001" target="_blank">필요한 자료</a>
+<script src="https://pace33.github.io/pic8/resource-view-counter.js"
+        data-views-api="https://aiedue.ddns.net/db-pic8/api/resource-views" defer></script>
 ```
 
-각 자료에 `data-resource-id`를 다르게 지정하면, 버튼 안에 조회수 배지가 자동 표시되며
-클릭 시 +1 됩니다. 기본 설정은 해당 브라우저에만 저장하므로
-`이 기기 조회수`로 표시됩니다. 웹앱 자체 소스 수정이 필수입니다.
+ID는 `[a-zA-Z0-9_-]{1,100}`입니다.
+GET `/api/resource-views/{id}` → `{"views":n}`,
+POST 같은 경로에 `{}` → 저장된 공유 조회수 +1.
+허용 Origin은 서버 설정의 정확한 목록만 사용하고 CORS/OPTIONS 및 요청 빈도를 검사합니다.
 
-### 전체 방문자에게 같은 조회수 보여주기
-백엔드 API가 마련된 경우 다음처럼 사용합니다.
+## 아직 원본 앱에 필요한 작업
 
-```html
-<script src="https://aiedue.ddns.net/pic/8/resource-view-counter.js"
-        data-views-api="/api/resource-views" defer></script>
-```
+이 저장소의 루트 `index.html`은
+`https://learning-webapp-library.lejinku.chatgpt.site/`를 iframe으로 보여 주는 연결 페이지입니다.
+실제 자료 버튼과 원본 앱 HTML/JS는 이 저장소에 없습니다.
+**부모 iframe 페이지 수정만으로 다른 Origin 내부 클릭을 수집할 수 없습니다.**
+원본 앱에 위 모듈과 실제 자료별 `data-resource-id`를 넣어야 하며,
+그 작업을 확인하기 전에는 내부 버튼의 공용 조회수 연결 완료로 보고하지 않습니다.
+기존 각 기기의 localStorage 조회수는 원본 공용 기록이 아니므로 임의 합산·이관하지 않습니다.
 
-API 규약:
-- `GET /api/resource-views/{id}` → `{"views": 10}`
-- `POST /api/resource-views/{id}` → 서버에서 원자적으로 +1 후 `{"views": 11}`
-- ID는 영문·숫자·하이픈·밑줄, 1~100자
-- 다른 도메인에 API가 있으면 CORS 및 적절한 남용 방지 설정 필요
-- API 실패 시 임의의 조회수를 표시하지 않고 `—` 표시
-
-**주의:** 원본 앱 HTML/JS와 공용 저장 API는 이 GitHub 저장소에 포함돼 있지 않습니다.
-원본 코드 연동·백엔드 배포 전에는 요청된 "모든 사람에게 공통 조회수" 기능이 완성되지 않습니다.
+신청/관리 API의 기존 데이터 보존·전환 잠금은 [DATA_SERVER.md](DATA_SERVER.md)를 참조하세요.

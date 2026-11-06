@@ -1,12 +1,26 @@
 'use strict';
 // password-admin-20261106-v1
-const API_BASE='https://teacher-workshop-jingu-2026.lejinku.chatgpt.site/api';
+const API_READY = window.Pic8Api.resolve();
 const byId=id=>document.getElementById(id);
 let token='',rows=[],selectedCount=0,totalCount=0,capacity=20,loading=false,saving=false;
 const formatTime=value=>new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(value);
 function showMessage(id,text,type='error'){const box=byId(id);box.textContent=text;box.className='message '+type;box.hidden=!text;}
 function resetLogin(text=''){token='';rows=[];byId('applicants-body').replaceChildren();byId('management-panel').hidden=true;byId('login-panel').hidden=false;byId('admin-password').value='';showMessage('login-message',text);byId('admin-password').focus();}
-async function callApi(path,options={}){const headers=new Headers(options.headers);if(token)headers.set('Authorization','Bearer '+token);if(options.body)headers.set('Content-Type','application/json');const r=await fetch(API_BASE+path,{...options,headers,cache:'no-store'});let d;try{d=await r.json();}catch{throw Error('서버 응답을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.');}if(r.status===401&&path!=='/admin/login'){resetLogin('로그인 시간이 만료되었습니다. 비밀번호로 다시 로그인해 주세요.');throw Error('관리자 로그인이 필요합니다.');}if(!r.ok)throw Error(d.error||'처리하지 못했습니다. 다시 시도해 주세요.');return d;}
+async function callApi(path,options={}){
+  const base = await API_READY;
+  const headers=new Headers(options.headers);
+  if(token)headers.set('Authorization','Bearer '+token);
+  if(options.body)headers.set('Content-Type','application/json');
+  const r=await fetch(base+path,{...options,headers,cache:'no-store'});
+  let d;
+  try{d=await r.json();}catch{throw Error('서버 응답을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.');}
+  if(r.status===401&&path!=='/admin/login'){
+    resetLogin('로그인 시간이 만료되었습니다. 비밀번호로 다시 로그인해 주세요.');
+    throw Error('관리자 로그인이 필요합니다.');
+  }
+  if(!r.ok)throw Error(d.error||'처리하지 못했습니다. 다시 시도해 주세요.');
+  return d;
+}
 function makeCell(text,className=''){const cell=document.createElement('td');cell.textContent=String(text);cell.className=className;return cell;}
 function render(){byId('total-count').replaceChildren(document.createTextNode(totalCount.toLocaleString('ko-KR')),Object.assign(document.createElement('small'),{textContent:'명'}));byId('selected-count').replaceChildren(document.createTextNode(selectedCount.toLocaleString('ko-KR')),Object.assign(document.createElement('small'),{textContent:' / '+capacity+'명'}));byId('available-count').replaceChildren(document.createTextNode(String(Math.max(0,capacity-selectedCount))),Object.assign(document.createElement('small'),{textContent:'명'}));const query=byId('applicant-search').value.trim().toLocaleLowerCase('ko-KR'),only=byId('selected-only').checked;const visible=rows.filter(p=>(!only||p.selected_slot!==null)&&(p.region+' '+p.school+' '+p.full_name).toLocaleLowerCase('ko-KR').includes(query));byId('list-description').textContent='접수순 · '+visible.length.toLocaleString('ko-KR')+'명 표시';const body=byId('applicants-body');body.replaceChildren();if(!visible.length){const tr=document.createElement('tr'),td=makeCell(rows.length?'조건에 맞는 신청자가 없습니다.':'아직 등록한 신청자가 없습니다.','empty-table');td.colSpan=6;tr.append(td);body.append(tr);return;}const fragment=document.createDocumentFragment();for(const p of visible){const tr=document.createElement('tr');tr.className=p.selected_slot!==null?'is-selected':'';tr.append(makeCell(p.receipt_order),makeCell(p.region),makeCell(p.school),makeCell(p.full_name,'admin-name'),makeCell(formatTime(p.created_at),'admin-date'));const cell=document.createElement('td'),label=document.createElement('label'),check=document.createElement('input'),text=document.createElement('span');label.className='select-check';check.type='checkbox';check.checked=p.selected_slot!==null;check.disabled=saving||loading||(selectedCount>=capacity&&!check.checked);check.setAttribute('aria-label',p.full_name+' 참가자 선정');text.textContent=check.checked?'✓ 선정':'선택';check.addEventListener('change',()=>saveSelection(p.id,check.checked));label.append(check,text);cell.append(label);tr.append(cell);fragment.append(tr);}body.append(fragment);}
 async function refresh(force=false){if(!token||loading||(saving&&!force))return;loading=true;byId('refresh-button').disabled=true;try{const d=await callApi('/manage');if(!token)return;rows=d.participants;totalCount=d.totalCount;selectedCount=d.selectedCount;capacity=d.capacity;render();byId('last-updated').textContent='업데이트 '+formatTime(Date.now());}catch(e){if(token)showMessage('management-message',e.message);}finally{loading=false;byId('refresh-button').disabled=false;if(token&&rows.length)render();}}
