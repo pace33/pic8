@@ -2,7 +2,7 @@ name: Verify training GitHub page
 on:
   push:
     branches: [main]
-    paths: ['training/**', 'server/**', 'DATA_SERVER.md', 'resource-view-counter.js', '.github/workflows/training-page.yml']
+    paths: ['index.html', 'library.js', 'library.css', 'training/**', 'server/**', 'DATA_SERVER.md', 'resource-view-counter.js', '.github/workflows/training-page.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,6 +20,7 @@ jobs:
       - name: Unit, security, fresh-start, migration and routing tests
         run: |
           python3 -B -m unittest discover -s server -p 'test_*.py' -v
+          node --check library.js
           node --check training/data-api.js
           node --check training/app.js
           node --check training/admin.js

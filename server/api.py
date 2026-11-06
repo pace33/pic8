@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from core import ApiError, Store, password_hash
+from library import Library
 
 
 def initialize(home, origins):
@@ -40,6 +41,8 @@ def make_server(home, host, port):
     config = json.loads((home / 'config.json').read_text(encoding='utf-8'))
     production = Store(home / 'registrations.sqlite', config)
     qa = Store(home / 'qa.sqlite', config, qa=True) if config.get('qa_enabled') else None
+    library = Library(home / 'library.sqlite', production)
+    qa_library = Library(home / 'qa-library.sqlite', qa) if qa else None
 
     class Handler(BaseHTTPRequestHandler):
         server_version = 'Pic8API'
@@ -60,7 +63,7 @@ def make_server(home, host, port):
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Content-Length', str(len(body)))
             if self.command == 'OPTIONS' and status == 204:
-                self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
                 self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Pic8-QA')
                 self.send_header('Access-Control-Max-Age', '300')
             self.end_headers()
@@ -99,7 +102,8 @@ def make_server(home, host, port):
                         raise ApiError(403, '출처를 확인해 주세요.')
                     requested = self.headers.get('Access-Control-Request-Method', 'GET')
                     headers = {h.strip().lower() for h in self.headers.get('Access-Control-Request-Headers', '').split(',') if h.strip()}
-                    if requested not in ('GET', 'POST', 'DELETE') or not headers <= {'content-type', 'authorization', 'x-pic8-qa'}:
+                    allowed = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE') if path == '/api/resources' else ('GET', 'PUT') if path == '/api/settings' else ('GET', 'POST', 'DELETE')
+                    if requested not in allowed or not headers <= {'content-type', 'authorization', 'x-pic8-qa'}:
                         raise ApiError(403, '허용되지 않은 사전 요청입니다.')
                     self.reply(204)
                     return
@@ -117,7 +121,17 @@ def make_server(home, host, port):
                     ip = self.client_address[0]
                 authorization = self.headers.get('Authorization', '')
                 token = authorization[7:] if authorization.startswith('Bearer ') else ''
-                if path in ('/api/health', '/api/registrations') and method == 'GET':
+                if path == '/api/resources':
+                    target = qa_library if scope == 'qa' else library
+                    if method not in ('GET', 'PATCH'):
+                        store.authorize(token)
+                    result = target.resources(method, self.read_body() if method != 'GET' else None, token, ip)
+                elif path == '/api/settings':
+                    target = qa_library if scope == 'qa' else library
+                    if method != 'GET':
+                        store.authorize(token)
+                    result = target.settings(method, self.read_body() if method != 'GET' else None, token, ip)
+                elif path in ('/api/health', '/api/registrations') and method == 'GET':
                     result = store.status()
                     if path.endswith('/health'):
                         result.update(ok=True, service='pic8-training')
@@ -125,6 +139,9 @@ def make_server(home, host, port):
                     result = store.registration(self.read_body(), ip)
                 elif path == '/api/admin/login' and method == 'POST':
                     result = store.login(self.read_body(), ip)
+                elif path == '/api/admin/login' and method == 'GET':
+                    store.authorize(token)
+                    result = {'authenticated': True}
                 elif path == '/api/admin/login' and method == 'DELETE':
                     result = store.logout(token)
                 elif path == '/api/manage' and method == 'DELETE':
@@ -147,6 +164,8 @@ def make_server(home, host, port):
 
         do_GET = dispatch
         do_POST = dispatch
+        do_PUT = dispatch
+        do_PATCH = dispatch
         do_DELETE = dispatch
         do_OPTIONS = dispatch
 
