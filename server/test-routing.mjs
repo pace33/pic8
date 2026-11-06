@@ -85,8 +85,8 @@ for (const mutationFailure of ['network','http-503']) {
   assert.equal(get('login-button').disabled,false);
   count++;
 }
-for(const [html,script] of [['index.html','app.js'],['manage.html','admin.js']]){
+for(const [html,script,version] of [['index.html','app.js','20261106-clean-v1'],['manage.html','admin.js','20261106-fresh-start-v2']]){
   assert(read(html).includes('data-api.js?v=aiedue-fresh-start-v2'));
-  assert(read(html).includes(script+'?v=20261106-fresh-start-v2'));
+  assert(read(html).includes(script+'?v='+version));
 }
 console.log(JSON.stringify({routingTestsPassed:count,aiedueOnly:true,noLegacyFallback:true,noMutationReplay:true,htmlVersionChain:true}));
