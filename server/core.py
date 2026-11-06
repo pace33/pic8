@@ -163,29 +163,93 @@ class Store:
             db.execute('DELETE FROM participants WHERE id=?', (row['id'],))
             return {'ok': True, 'cancelled': True}
 
+    @contextlib.contextmanager
+    def auth_guard(self):
+        from auth import config_lock
+        with config_lock(self.path.parent):
+            if not self.qa:
+                fresh = json.loads((self.path.parent / 'config.json').read_text(encoding='utf-8'))
+                self.config.update(fresh)
+            yield
+
+    def verify_password(self, password):
+        if not isinstance(password, str) or not 1 <= len(password) <= 1024:
+            return False
+        try:
+            prefix = 'qa_admin_' if self.qa else 'admin_'
+            return hmac.compare_digest(password_hash(password, self.config[prefix + 'salt']), self.config[prefix + 'hash'])
+        except UnicodeError:
+            return False
+
+    def session_digest(self, token):
+        epoch = '' if self.qa else self.config.get('admin_session_epoch', '')
+        return hashlib.sha256((epoch + token).encode()).hexdigest()
+
     def login(self, body, ip):
         self.limit('admin:' + ip, 12, 900)
-        password = body.get('password')
-        if not isinstance(password, str) or not 1 <= len(password) <= 1024:
-            raise ApiError(401, '관리자 비밀번호를 확인해 주세요.')
-        prefix = 'qa_admin_' if self.qa else 'admin_'
-        if not hmac.compare_digest(password_hash(password, self.config[prefix + 'salt']), self.config[prefix + 'hash']):
-            raise ApiError(401, '관리자 비밀번호를 확인해 주세요.')
-        token = secrets.token_urlsafe(32)
-        with self.db(True) as db:
-            db.execute('DELETE FROM sessions WHERE expires<=?', (self.clock(),))
-            db.execute('INSERT INTO sessions VALUES(?,?)', (hashlib.sha256(token.encode()).hexdigest(), self.clock() + 8 * 3600))
-        return {'accessToken': token}
+        with self.auth_guard():
+            if not self.verify_password(body.get('password')):
+                raise ApiError(401, '관리자 비밀번호를 확인해 주세요.')
+            token = secrets.token_urlsafe(32)
+            with self.db(True) as db:
+                db.execute('DELETE FROM sessions WHERE expires<=?', (self.clock(),))
+                db.execute('INSERT INTO sessions VALUES(?,?)', (self.session_digest(token), self.clock() + 8 * 3600))
+            return {'accessToken': token}
+
+    def change_password(self, body, ip):
+        if self.qa:
+            raise ApiError(403, '시험 인증으로 공통 관리자 비밀번호를 변경할 수 없습니다.')
+        self.limit('password-change:' + ip, 6, 900)
+        self.limit('password-change:global', 60, 900)
+        current, new, confirm = (body.get(key) for key in ('currentPassword', 'newPassword', 'confirmPassword'))
+        if not isinstance(current, str) or not current:
+            raise ApiError(400, '현재 비밀번호를 입력해 주세요.')
+        if len(current) > 1024:
+            raise ApiError(400, '현재 비밀번호는 1024자 이하여야 합니다.')
+        self.validate_new_password(new, confirm)
+        with self.auth_guard():
+            # Never authorize by session or QA verifier: the real verifier is mandatory.
+            if not self.verify_password(current):
+                raise ApiError(401, '현재 비밀번호가 올바르지 않습니다.')
+            self.persist_password(new)
+        return {'passwordChanged': True, 'reauthenticationRequired': True}
+
+    @staticmethod
+    def validate_new_password(password, confirm):
+        if not isinstance(password, str) or not password:
+            raise ApiError(400, '새 비밀번호를 입력해 주세요.')
+        if not 4 <= len(password) <= 1024:
+            raise ApiError(400, '새 비밀번호는 4~1024자여야 합니다.')
+        try:
+            password.encode('utf-8')
+        except UnicodeError:
+            raise ApiError(400, '새 비밀번호의 문자 형식을 확인해 주세요.') from None
+        if not isinstance(confirm, str) or password != confirm:
+            raise ApiError(400, '새 비밀번호와 확인 입력이 일치하지 않습니다.')
+
+    def persist_password(self, password):
+        from auth import save_credentials
+        try:
+            save_credentials(self.path.parent, self.config, password)
+        except OSError:
+            raise ApiError(503, '비밀번호를 저장하지 못했습니다. 기존 비밀번호로 다시 시도해 주세요.') from None
+        # Epoch revocation is already durable. Cleanup is not the commit point.
+        try:
+            with self.db(True) as db:
+                db.execute('DELETE FROM sessions')
+        except sqlite3.Error:
+            pass
 
     def authorize(self, token):
         if not isinstance(token, str) or not 20 <= len(token) <= 200:
             raise ApiError(401, '관리자 로그인이 필요합니다.')
-        digest = hashlib.sha256(token.encode()).hexdigest()
-        with self.db() as db:
-            row = db.execute('SELECT expires FROM sessions WHERE digest=?', (digest,)).fetchone()
-        if not row or row['expires'] <= self.clock():
-            raise ApiError(401, '관리자 로그인이 필요합니다.')
-        return digest
+        with self.auth_guard():
+            digest = self.session_digest(token)
+            with self.db() as db:
+                row = db.execute('SELECT expires FROM sessions WHERE digest=?', (digest,)).fetchone()
+            if not row or row['expires'] <= self.clock():
+                raise ApiError(401, '관리자 로그인이 필요합니다.')
+            return digest
 
     def logout(self, token):
         digest = self.authorize(token)

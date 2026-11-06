@@ -77,7 +77,8 @@ def make_server(home, host, port):
                 length = int(self.headers.get('Content-Length', '0'))
             except ValueError:
                 raise ApiError(400, '잘못된 요청 길이입니다.')
-            if not 0 < length <= 8192:
+            maximum = 32768 if urlsplit(self.path).path == '/api/admin/password' else 8192
+            if not 0 < length <= maximum:
                 raise ApiError(413, '요청 크기를 확인해 주세요.')
             try:
                 body = json.loads(self.rfile.read(length))
@@ -97,12 +98,17 @@ def make_server(home, host, port):
                 if not path.startswith('/api/'):
                     raise ApiError(404, '경로를 찾을 수 없습니다.')
                 method = self.command
+                if path == '/api/admin/password':
+                    if not origin:
+                        raise ApiError(403, '출처를 확인해 주세요.')
+                    if self.headers.get('X-Pic8-QA') is not None:
+                        raise ApiError(403, '시험 인증으로 공통 관리자 비밀번호를 변경할 수 없습니다.')
                 if method == 'OPTIONS':
                     if not origin:
                         raise ApiError(403, '출처를 확인해 주세요.')
                     requested = self.headers.get('Access-Control-Request-Method', 'GET')
                     headers = {h.strip().lower() for h in self.headers.get('Access-Control-Request-Headers', '').split(',') if h.strip()}
-                    allowed = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE') if path == '/api/resources' else ('GET', 'PUT') if path == '/api/settings' else ('GET', 'POST', 'DELETE')
+                    allowed = ('POST',) if path == '/api/admin/password' else ('GET', 'POST', 'PUT', 'PATCH', 'DELETE') if path == '/api/resources' else ('GET', 'PUT') if path == '/api/settings' else ('GET', 'POST', 'DELETE')
                     if requested not in allowed or not headers <= {'content-type', 'authorization', 'x-pic8-qa'}:
                         raise ApiError(403, '허용되지 않은 사전 요청입니다.')
                     self.reply(204)
@@ -137,6 +143,8 @@ def make_server(home, host, port):
                         result.update(ok=True, service='pic8-training')
                 elif path == '/api/registrations' and method == 'POST':
                     result = store.registration(self.read_body(), ip)
+                elif path == '/api/admin/password' and method == 'POST':
+                    result = production.change_password(self.read_body(), ip)
                 elif path == '/api/admin/login' and method == 'POST':
                     result = store.login(self.read_body(), ip)
                 elif path == '/api/admin/login' and method == 'GET':
@@ -234,17 +242,10 @@ def main():
             raise ValueError('Use between 4 and 1024 characters')
         if getpass.getpass('Repeat password: ') != password:
             raise ValueError('Passwords do not match')
-        config['admin_salt'] = secrets.token_hex(16)
-        config['admin_hash'] = password_hash(password, config['admin_salt'])
-        temp = config_path.with_suffix('.new')
-        with temp.open('x', encoding='utf-8') as file:
-            json.dump(config, file, indent=2)
-        temp.chmod(0o600)
-        os.replace(temp, config_path)
-        with store.db(True) as db:
-            db.execute('DELETE FROM sessions')
-        (args.home / 'admin-password.txt').unlink(missing_ok=True)
-        print(json.dumps({'passwordChanged': True, 'restartRequired': True}))
+        store.validate_new_password(password, password)
+        with store.auth_guard():
+            store.persist_password(password)
+        print(json.dumps({'passwordChanged': True, 'restartRequired': False}))
 
 
 if __name__ == '__main__':
