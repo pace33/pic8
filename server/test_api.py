@@ -37,8 +37,13 @@ class CoreTests(unittest.TestCase):
         before = self.store.registration(self.body(action='lookup'), 'local')['participant']
         self.assertEqual(before['status'], 'received')
         self.assertNotIn('selected_slot', before)
+        self.now = ANNOUNCEMENT_TS - 0.001
+        self.assertFalse(self.store.status()['published'])
+        self.assertEqual(self.store.registration(self.body(action='lookup'), 'local')['participant']['status'], 'received')
         self.now = ANNOUNCEMENT_TS
         self.assertEqual(self.store.registration(self.body(action='lookup'), 'local')['participant']['status'], 'selected')
+        self.store.registration(self.body(1), 'local')
+        self.assertEqual(self.store.registration(self.body(1, action='lookup'), 'local')['participant']['status'], 'not_selected')
         status = self.store.status()
         self.assertEqual(status['participants'], [])
         self.assertIsNone(status['count'])
@@ -61,7 +66,7 @@ class CoreTests(unittest.TestCase):
         self.assertNotEqual(original['id'], fresh['id'])
 
     def test_validation(self):
-        for value in ['123456', '１２３４', 1234, '', None, '1234\n']:
+        for value in ['123456', '１２３４', '١٢٣٤', '12a4', '123', 1234, '', None, '1234\n']:
             body = self.body(); body['pin'] = value
             self.error(400, lambda: self.store.registration(body, 'local'))
         for key, value in [('region',''), ('school','x'*81), ('name','a'), ('name','가\u0000나')]:

@@ -159,11 +159,17 @@ def main():
     parser.add_argument('--home', type=Path, required=True)
     parser.add_argument('--port', type=int, default=9058)
     parser.add_argument('--host', default='127.0.0.1')
-    parser.add_argument('command', choices=['serve', 'init', 'status', 'import', 'activate', 'backup', 'set-password'])
+    parser.add_argument('command', choices=['serve', 'init', 'status', 'import', 'activate', 'fresh-start', 'backup', 'set-password'])
     parser.add_argument('--input', type=Path)
     parser.add_argument('--confirmed-empty', action='store_true')
     parser.add_argument('--legacy-writes-stopped', action='store_true')
+    parser.add_argument('--user-authorized-fresh-start', action='store_true')
     args = parser.parse_args()
+    if args.command == 'fresh-start':
+        if not args.user_authorized_fresh_start or args.confirmed_empty or args.legacy_writes_stopped:
+            parser.error('fresh-start requires --user-authorized-fresh-start, not legacy empty/write-freeze flags')
+    elif args.user_authorized_fresh_start:
+        parser.error('--user-authorized-fresh-start is only valid with fresh-start')
     origins = ['https://pace33.github.io', 'https://aiedue.ddns.net',
                'https://learning-webapp-library.lejinku.chatgpt.site']
     if args.command == 'init':
@@ -180,6 +186,9 @@ def main():
     store = Store(args.home / 'registrations.sqlite', config)
     if args.command == 'status':
         print(json.dumps(store.status()))
+    elif args.command == 'fresh-start':
+        store.fresh_start(user_authorized=args.user_authorized_fresh_start)
+        print(json.dumps(store.status()))
     elif args.command == 'activate':
         store.activate(args.confirmed_empty, args.legacy_writes_stopped)
         print(json.dumps({'active': True}))
@@ -191,8 +200,12 @@ def main():
         if args.input is None or args.input.exists():
             parser.error('--input must name a new private backup file')
         import sqlite3
-        with store.db() as source, sqlite3.connect(args.input) as destination:
-            source.backup(destination)
+        with store.db() as source:
+            destination = sqlite3.connect(args.input)
+            try:
+                source.backup(destination)
+            finally:
+                destination.close()
         args.input.chmod(0o600)
         print(json.dumps({'backedUp': True}))
     elif args.command == 'set-password':

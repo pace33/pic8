@@ -2,7 +2,7 @@ name: Verify training GitHub page
 on:
   push:
     branches: [main]
-    paths: ['training/**', 'server/**', 'resource-view-counter.js', '.github/workflows/training-page.yml']
+    paths: ['training/**', 'server/**', 'DATA_SERVER.md', 'resource-view-counter.js', '.github/workflows/training-page.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,72 +17,63 @@ jobs:
       API_BASE: https://aiedue.ddns.net/db-pic8/api
     steps:
       - uses: actions/checkout@v4
-      - name: Unit, security, migration and syntax tests
+      - name: Unit, security, fresh-start, migration and routing tests
         run: |
-          python3 -B -m unittest discover -s server -p test_api.py -v
+          python3 -B -m unittest discover -s server -p 'test_*.py' -v
           node --check training/data-api.js
           node --check training/app.js
           node --check training/admin.js
           node --check resource-view-counter.js
           node server/test-routing.mjs
       - name: Mark deployment check pending
-        run: gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=training-page -f description="Waiting for data-safe API routing and public assets" -f target_url="$PAGE_URL"
-      - name: Verify public assets and data-safe API
+        run: gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=training-page -f description="Waiting for Aiedue-only fresh intake and exact public assets" -f target_url="$PAGE_URL"
+      - name: Verify exact public assets and Aiedue-only API
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..36}; do
-            if curl -fsSL --max-time 15 "$PAGE_URL?sha=$GITHUB_SHA" -o /tmp/training-page.html &&
-               grep -q 'data-api.js?v=aiedue-storage-v1' /tmp/training-page.html &&
-               grep -q 'admin-menu-button' /tmp/training-page.html &&
-               curl -fsSL --max-time 15 "${PAGE_URL}data-api.js?sha=$GITHUB_SHA" -o /tmp/training-data-api.js &&
-               grep -Fq "$API_BASE" /tmp/training-data-api.js &&
-               grep -q 'readyForCutover === true' /tmp/training-data-api.js &&
-               curl -fsSL --max-time 15 "${PAGE_URL}app.js?sha=$GITHUB_SHA" -o /tmp/training-app.js &&
-               grep -Fq 'window.Pic8Api.resolve()' /tmp/training-app.js &&
-               grep -Fq '나의 신청을 확인하고 연수 취소를 합니다.' /tmp/training-app.js &&
-               grep -Fq '.slice(0,4)' /tmp/training-app.js &&
-               grep -Fq 'pattern="[0-9]{4}"' /tmp/training-page.html &&
-               curl -fsSL --max-time 15 "${PAGE_URL}manage.html?sha=$GITHUB_SHA" -o /tmp/training-manage.html &&
-               grep -q 'data-api.js?v=aiedue-storage-v1' /tmp/training-manage.html &&
-               grep -q 'id="delete-dialog"' /tmp/training-manage.html &&
-               curl -fsSL --max-time 15 "${PAGE_URL}admin.js?sha=$GITHUB_SHA" -o /tmp/training-admin.js &&
-               grep -Fq 'window.Pic8Api.resolve()' /tmp/training-admin.js &&
-               grep -Fq 'confirmed:true' /tmp/training-admin.js &&
-               curl -fsSL --max-time 15 "${PAGE_URL}style.css?sha=$GITHUB_SHA" -o /tmp/training-style.css &&
-               grep -Fq 'visible application tabs and admin deletion: 20261106-v1' /tmp/training-style.css; then
-              break
-            fi
+            matched=true
+            for asset in index.html manage.html data-api.js app.js admin.js style.css; do
+              public_path="$asset"
+              if [ "$asset" = index.html ]; then public_path=""; fi
+              if ! curl -fsSL --max-time 15 "${PAGE_URL}${public_path}?sha=$GITHUB_SHA" -o "/tmp/pic8-$asset" ||
+                 ! cmp -s "training/$asset" "/tmp/pic8-$asset"; then matched=false; break; fi
+            done
+            if [ "$matched" = true ]; then break; fi
             if [ "$attempt" = 36 ]; then exit 1; fi
             sleep 10
           done
-          node --check /tmp/training-data-api.js
-          node --check /tmp/training-app.js
-          node --check /tmp/training-admin.js
+          grep -Fq 'data-api.js?v=aiedue-fresh-start-v2' /tmp/pic8-index.html
+          grep -Fq 'data-api.js?v=aiedue-fresh-start-v2' /tmp/pic8-manage.html
+          grep -Fq 'app.js?v=20261106-fresh-start-v2' /tmp/pic8-index.html
+          grep -Fq 'admin.js?v=20261106-fresh-start-v2' /tmp/pic8-manage.html
+          grep -Fq "$API_BASE" /tmp/pic8-data-api.js
+          ! grep -Fq 'chatgpt.site' /tmp/pic8-data-api.js
+          grep -Fq 'window.Pic8Api.resolve()' /tmp/pic8-app.js
+          grep -Fq 'window.Pic8Api.resolve()' /tmp/pic8-admin.js
+          grep -Fq 'confirmed:true' /tmp/pic8-admin.js
+          grep -Fq 'id="delete-dialog"' /tmp/pic8-manage.html
+          grep -Fq 'pattern="[0-9]{4}"' /tmp/pic8-index.html
           curl -fsSL --max-time 30 -D /tmp/api-headers -H 'Origin: https://pace33.github.io' "$API_BASE/health" -o /tmp/api-status.json
           grep -iq 'access-control-allow-origin: https://pace33.github.io' /tmp/api-headers
-          python3 -c "import json; d=json.load(open('/tmp/api-status.json')); assert d['ok'] and d['capacity']==20 and d['participants']==[] and d['count'] is None and type(d['readyForCutover']) is bool; print('Migration gate:', d['readyForCutover'])"
+          python3 -c "import json; d=json.load(open('/tmp/api-status.json')); assert d['ok'] and d['capacity']==20 and d['participants']==[] and d['count'] is None and d['readyForCutover'] is True; assert d['operationMode']=='fresh-start-without-legacy-import'; assert all(d[k] is True for k in ['sourceNotImported','legacyWritesNotControlled','userAuthorizedFreshStart']); assert d['announcementAt']=='2026-11-17T00:00:00+09:00'; print('Aiedue fresh intake ready; legacy not imported or write-controlled')"
           status="$(curl -sS --max-time 30 -o /tmp/admin-unauthorized.json -w '%{http_code}' -H 'Origin: https://pace33.github.io' "$API_BASE/manage")"
           test "$status" = 401
           python3 -c "import json; assert 'participants' not in json.load(open('/tmp/admin-unauthorized.json'))"
-          delete_api="$(python3 -c "import json; d=json.load(open('/tmp/api-status.json')); print('https://aiedue.ddns.net/db-pic8/api' if d['readyForCutover'] else 'https://teacher-workshop-jingu-2026.lejinku.chatgpt.site/api')")"
-          status="$(curl -sS --max-time 30 -o /tmp/delete-unauthorized.json -w '%{http_code}' -X DELETE -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"id":"no-real-record","confirmed":true}' "$delete_api/manage")"
+          status="$(curl -sS --max-time 30 -o /tmp/delete-unauthorized.json -w '%{http_code}' -X DELETE -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"id":"no-real-record","confirmed":true}' "$API_BASE/manage")"
           test "$status" = 401
           status="$(curl -sS --max-time 30 -D /tmp/preflight-headers -o /dev/null -w '%{http_code}' -X OPTIONS -H 'Origin: https://pace33.github.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type,authorization' "$API_BASE/admin/login")"
           test "$status" = 204
           grep -iq 'access-control-allow-origin: https://pace33.github.io' /tmp/preflight-headers
           status="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -H 'Origin: https://not-allowed.example' "$API_BASE/registrations")"
           test "$status" = 403
-          status="$(curl -sS --max-time 30 -o /tmp/pin6-format.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"action":"register","region":"충북","school":"배포검증","name":"연결점검","pin":"123456"}' "$API_BASE/registrations")"
+          status="$(curl -sS --max-time 30 -o /tmp/pin-format.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"action":"register","region":"검증","school":"배포검증","name":"형식검증","pin":"123456"}' "$API_BASE/registrations")"
           test "$status" = 400
-          status="$(curl -sS --max-time 30 -o /tmp/pin4-format.json -w '%{http_code}' -X POST -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"action":"lookup","region":"충북","school":"배포검증","name":"연결점검","pin":"9876"}' "$API_BASE/registrations")"
-          expected="$(python3 -c "import json; print(404 if json.load(open('/tmp/api-status.json'))['readyForCutover'] else 503)")"
-          test "$status" = "$expected"
-      - name: Report verified result (not a migration-complete assertion)
+      - name: Report fresh-intake deployment (not legacy migration)
         if: always()
         env:
           VERIFY_RESULT: ${{ job.status }}
         run: |
           state=failure
           if [ "$VERIFY_RESULT" = success ]; then state=success; fi
-          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context=training-page -f description="API and migration-safe routing checks: $state" -f target_url="$PAGE_URL"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context=training-page -f description="Aiedue-only fresh intake and exact public bytes: $state" -f target_url="$PAGE_URL"

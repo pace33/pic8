@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 import time
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 CAPACITY = 20
@@ -84,9 +84,16 @@ class Store:
             return db.execute("SELECT value FROM metadata WHERE key='active'").fetchone()[0] == '1'
 
     def status(self):
+        with self.db() as db:
+            metadata = dict(db.execute('SELECT key,value FROM metadata'))
         return {'capacity': CAPACITY, 'published': self.clock() >= ANNOUNCEMENT_TS,
                 'announcementAt': ANNOUNCEMENT, 'count': None, 'participants': [],
-                'readyForCutover': self.active(), 'storage': 'aiedue-project-sqlite'}
+                'readyForCutover': self.qa or metadata.get('active') == '1',
+                'storage': 'aiedue-project-sqlite',
+                'operationMode': metadata.get('operationMode', 'legacy-import' if metadata.get('complete_import') else 'pending'),
+                'sourceNotImported': metadata.get('sourceNotImported') == '1',
+                'legacyWritesNotControlled': metadata.get('legacyWritesNotControlled') == '1',
+                'userAuthorizedFreshStart': metadata.get('userAuthorizedFreshStart') == '1'}
 
     def limit(self, bucket, maximum, seconds):
         key = hmac.new(self.config['pepper'].encode(), bucket.encode(), 'sha256').hexdigest()
@@ -126,7 +133,7 @@ class Store:
             raise ApiError(400, '지원하지 않는 신청 작업입니다.')
         region, school, name, pin = self.identity(body)
         if not self.active():
-            raise ApiError(503, '기존 신청 데이터 이관 확인 중입니다. 기존 신청 페이지를 이용해 주세요.')
+            raise ApiError(503, '현재 접수를 준비 중입니다. 잠시 후 다시 시도해 주세요.')
         self.limit('requests:' + ip, 240, 600)
         identity = json.dumps([region, school, name], ensure_ascii=False)
         self.limit('identity:' + identity, 12, 600)
@@ -232,6 +239,32 @@ class Store:
                 db.execute('INSERT INTO resource_views VALUES(?,1) ON CONFLICT(id) DO UPDATE SET views=views+1', (ident,))
             row = db.execute('SELECT views FROM resource_views WHERE id=?', (ident,)).fetchone()
         return {'views': row[0] if row else 0}
+
+    def fresh_start(self, user_authorized=False):
+        """Start NEW intake, preserving this target; make no claim about the source."""
+        if user_authorized is not True or self.qa:
+            raise ValueError('Explicit user authorization for production fresh-start is required')
+        mode = 'fresh-start-without-legacy-import'
+        with self.db(True) as db:
+            metadata = dict(db.execute('SELECT key,value FROM metadata'))
+            if metadata.get('complete_import'):
+                raise ValueError('Refusing to relabel an existing legacy import as unimported')
+            if metadata.get('operationMode') == mode and metadata.get('active') == '1':
+                return  # Idempotent: retain the original activation audit timestamp.
+            if metadata.get('active') != '0':
+                raise ValueError('Refusing to relabel an already active target')
+            audit = {
+                'operationMode': mode,
+                'sourceNotImported': '1',
+                'legacyWritesNotControlled': '1',
+                'userAuthorizedFreshStart': '1',
+                'legacyDataMigrated': '0',
+                'legacyWritesStopped': '0',
+                'freshStartAtUtc': datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(),
+                'targetExistingCountAtFreshStart': str(db.execute('SELECT COUNT(*) FROM participants').fetchone()[0]),
+                'active': '1',
+            }
+            db.executemany('INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', audit.items())
 
     def activate(self, confirmed_empty=False, source_writes_stopped=False):
         if source_writes_stopped is not True:
