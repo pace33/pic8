@@ -40,12 +40,17 @@ jobs:
                grep -q 'readyForCutover === true' /tmp/training-data-api.js &&
                curl -fsSL --max-time 15 "${PAGE_URL}app.js?sha=$GITHUB_SHA" -o /tmp/training-app.js &&
                grep -Fq 'window.Pic8Api.resolve()' /tmp/training-app.js &&
+               grep -Fq '나의 신청을 확인하고 연수 취소를 합니다.' /tmp/training-app.js &&
                grep -Fq '.slice(0,4)' /tmp/training-app.js &&
                grep -Fq 'pattern="[0-9]{4}"' /tmp/training-page.html &&
                curl -fsSL --max-time 15 "${PAGE_URL}manage.html?sha=$GITHUB_SHA" -o /tmp/training-manage.html &&
                grep -q 'data-api.js?v=aiedue-storage-v1' /tmp/training-manage.html &&
+               grep -q 'id="delete-dialog"' /tmp/training-manage.html &&
                curl -fsSL --max-time 15 "${PAGE_URL}admin.js?sha=$GITHUB_SHA" -o /tmp/training-admin.js &&
-               grep -Fq 'window.Pic8Api.resolve()' /tmp/training-admin.js; then
+               grep -Fq 'window.Pic8Api.resolve()' /tmp/training-admin.js &&
+               grep -Fq 'confirmed:true' /tmp/training-admin.js &&
+               curl -fsSL --max-time 15 "${PAGE_URL}style.css?sha=$GITHUB_SHA" -o /tmp/training-style.css &&
+               grep -Fq 'visible application tabs and admin deletion: 20261106-v1' /tmp/training-style.css; then
               break
             fi
             if [ "$attempt" = 36 ]; then exit 1; fi
@@ -60,6 +65,10 @@ jobs:
           status="$(curl -sS --max-time 30 -o /tmp/admin-unauthorized.json -w '%{http_code}' -H 'Origin: https://pace33.github.io' "$API_BASE/manage")"
           test "$status" = 401
           python3 -c "import json; assert 'participants' not in json.load(open('/tmp/admin-unauthorized.json'))"
+          for delete_api in "$API_BASE" 'https://teacher-workshop-jingu-2026.lejinku.chatgpt.site/api'; do
+            status="$(curl -sS --max-time 30 -o /tmp/delete-unauthorized.json -w '%{http_code}' -X DELETE -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"id":"no-real-record","confirmed":true}' "$delete_api/manage")"
+            test "$status" = 401
+          done
           status="$(curl -sS --max-time 30 -D /tmp/preflight-headers -o /dev/null -w '%{http_code}' -X OPTIONS -H 'Origin: https://pace33.github.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type,authorization' "$API_BASE/admin/login")"
           test "$status" = 204
           grep -iq 'access-control-allow-origin: https://pace33.github.io' /tmp/preflight-headers

@@ -127,6 +127,9 @@ def make_server(home, host, port):
                     result = store.login(self.read_body(), ip)
                 elif path == '/api/admin/login' and method == 'DELETE':
                     result = store.logout(token)
+                elif path == '/api/manage' and method == 'DELETE':
+                    store.authorize(token)
+                    result = store.delete_registration(token, self.read_body())
                 elif path == '/api/manage' and method in ('GET', 'POST'):
                     store.authorize(token)
                     result = store.manage(token, self.read_body() if method == 'POST' else None)

@@ -90,6 +90,30 @@ class CoreTests(unittest.TestCase):
         self.store.manage(self.token, {'id': waiting['id'], 'selected': True})
         self.assertEqual(self.store.manage(self.token)['selectedCount'], 20)
 
+    def test_admin_delete_confirmation_counts_and_slot_reuse(self):
+        ids = [self.store.registration(self.body(n), 'local')['participant']['id'] for n in range(21)]
+        for ident in ids[:20]:
+            self.store.manage(self.token, {'id': ident, 'selected': True})
+        self.error(401, lambda: self.store.delete_registration('', {'id': ids[0], 'confirmed': True}))
+        for body in [{'id': ids[0]}, {'id': ids[0], 'confirmed': False}, {'id': ids[0], 'confirmed': 1}, {'id': '', 'confirmed': True}, {'id': 'x'*81, 'confirmed': True}]:
+            self.error(400, lambda: self.store.delete_registration(self.token, body))
+        self.assertEqual(self.store.manage(self.token)['totalCount'], 21)
+        result = self.store.delete_registration(self.token, {'id': ids[-1], 'confirmed': True})
+        self.assertEqual(result, {'deleted': True, 'wasSelected': False})
+        self.assertEqual(self.store.manage(self.token)['selectedCount'], 20)
+        result = self.store.delete_registration(self.token, {'id': ids[0], 'confirmed': True})
+        self.assertTrue(result['wasSelected'])
+        data = self.store.manage(self.token)
+        self.assertEqual((data['totalCount'], data['selectedCount']), (19, 19))
+        self.error(404, lambda: self.store.registration(self.body(action='lookup'), 'local'))
+        self.error(404, lambda: self.store.delete_registration(self.token, {'id': ids[0], 'confirmed': True}))
+        fresh = self.store.registration(self.body(), 'local')['participant']
+        self.assertNotEqual(fresh['id'], ids[0])
+        self.store.manage(self.token, {'id': fresh['id'], 'selected': True})
+        self.assertEqual(self.store.manage(self.token)['selectedCount'], 20)
+        self.store.logout(self.token)
+        self.error(401, lambda: self.store.delete_registration(self.token, {'id': fresh['id'], 'confirmed': True}))
+
     def test_auth_session_persistence_logout_and_no_pin_leak(self):
         self.error(401, lambda: self.store.manage(''))
         self.error(401, lambda: self.store.login({'password':'wrong'}, 'other'))
@@ -176,10 +200,34 @@ class HttpTests(unittest.TestCase):
         status,head,data = self.request('/api/registrations')
         self.assertEqual(status,200);self.assertEqual(data['participants'],[]);self.assertIsNone(data['count']);self.assertFalse(data['readyForCutover'])
         self.assertEqual(self.request('/api/manage')[0],401)
+        self.assertEqual(self.request('/api/manage','DELETE',{'id':'x','confirmed':True})[0],401)
+        self.assertEqual(self.request('/api/manage','DELETE',{'id':'x','confirmed':True},origin='https://evil.example')[0],403)
         self.assertEqual(self.request('/api/manage','POST',{'id':'x','selected':True})[0],401)
         self.assertEqual(self.request('/api/registrations','POST',{'action':'register','region':'충북','school':'학교','name':'검증','pin':'123456'})[0],400)
         self.assertEqual(self.request('/api/registrations','POST',{'action':'register','region':'충북','school':'학교','name':'검증','pin':'1234'})[0],503)
         self.assertEqual(self.request('/api/health',headers={'X-Pic8-QA':'not-a-secret'})[0],404)
+
+    def test_http_confirmed_admin_delete(self):
+        # Use only this test's temporary database, with no production records.
+        store = Store(self.home / 'registrations.sqlite', self.config)
+        store.activate(confirmed_empty=True, source_writes_stopped=True)
+        password = (self.home / 'admin-password.txt').read_text().strip()
+        status, _, login = self.request('/api/admin/login', 'POST', {'password': password})
+        self.assertEqual(status, 200)
+        headers = {'Authorization': 'Bearer ' + login['accessToken']}
+        body = {'action': 'register', 'region': '충북', 'school': '검증학교', 'name': '삭제검증', 'pin': '9876'}
+        status, _, data = self.request('/api/registrations', 'POST', body)
+        self.assertEqual(status, 200)
+        ident = data['participant']['id']
+        self.assertEqual(self.request('/api/manage', 'POST', {'id': ident, 'selected': True}, headers=headers)[0], 200)
+        self.assertEqual(self.request('/api/manage', 'DELETE', {'id': ident}, headers=headers)[0], 400)
+        status, _, data = self.request('/api/manage', 'DELETE', {'id': ident, 'confirmed': True}, headers=headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {'deleted': True, 'wasSelected': True})
+        self.assertEqual(self.request('/api/manage', headers=headers)[2]['totalCount'], 0)
+        self.assertEqual(self.request('/api/manage', headers=headers)[2]['selectedCount'], 0)
+        body['action'] = 'lookup'
+        self.assertEqual(self.request('/api/registrations', 'POST', body)[0], 404)
 
 
 if __name__ == '__main__':

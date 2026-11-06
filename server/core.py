@@ -210,6 +210,18 @@ class Store:
                 'selectedCount': sum(r['selected_slot'] is not None for r in rows),
                 'capacity': CAPACITY, 'readyForCutover': self.active()}
 
+    def delete_registration(self, token, body):
+        self.authorize(token)
+        ident = body.get('id')
+        if not isinstance(ident, str) or not ident.strip() or len(ident) > 80 or body.get('confirmed') is not True:
+            raise ApiError(400, '삭제할 신청자와 삭제 확인 여부를 확인해 주세요.')
+        with self.db(True) as db:
+            row = db.execute('SELECT selected_slot FROM participants WHERE id=?', (ident,)).fetchone()
+            if row is None:
+                raise ApiError(404, '이미 삭제되었거나 취소된 신청입니다.')
+            db.execute('DELETE FROM participants WHERE id=?', (ident,))
+        return {'deleted': True, 'wasSelected': row['selected_slot'] is not None}
+
     def views(self, ident, increment=False, ip='local'):
         if not RESOURCE_RE.fullmatch(ident):
             raise ApiError(400, '잘못된 자료 ID입니다.')

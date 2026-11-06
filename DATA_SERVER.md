@@ -29,6 +29,7 @@
 - `POST /api/admin/login {password}` → `{accessToken}`, `DELETE /api/admin/login` 로그아웃 및 세션 폐기.
 - `GET /api/manage` Bearer 인증 → `{participants,totalCount,selectedCount,capacity}`. `created_at`은 기존 JS `Intl.DateTimeFormat.format()`와 호환되는 epoch **밀리초 정수**입니다. PIN/해시/salt는 관리자 명단에도 반환하지 않습니다.
 - `POST /api/manage {id,selected}`: `selected`는 JSON boolean. 접수 건수에는 정원 제한이 없고 선정만 최대 20명. 트랜잭션/고유 슬롯으로 동시 요청에도 21번째 선정을 거절합니다.
+- `DELETE /api/manage {id,confirmed:true}`: 관리자 인증과 명시적 삭제 확인이 필요합니다. 해당 신청 1건을 삭제하며 선정 슬롯도 비워집니다. 삭제된 신청은 본인 조회에 표시되지 않고 재신청할 수 있습니다.
 - 한국시간 `2026-11-17T00:00:00+09:00` 전에는 본인 조회에도 선정 여부를 숨깁니다.
 - `GET/POST /api/resource-views/{id}`: 실제 SQLite 공유 집계, 원자적 +1. ID `[a-zA-Z0-9_-]{1,100}`. 별도 원본 UI 연결은 `RESOURCE_VIEWS.md` 참조.
 
