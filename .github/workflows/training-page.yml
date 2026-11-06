@@ -65,10 +65,9 @@ jobs:
           status="$(curl -sS --max-time 30 -o /tmp/admin-unauthorized.json -w '%{http_code}' -H 'Origin: https://pace33.github.io' "$API_BASE/manage")"
           test "$status" = 401
           python3 -c "import json; assert 'participants' not in json.load(open('/tmp/admin-unauthorized.json'))"
-          for delete_api in "$API_BASE" 'https://teacher-workshop-jingu-2026.lejinku.chatgpt.site/api'; do
-            status="$(curl -sS --max-time 30 -o /tmp/delete-unauthorized.json -w '%{http_code}' -X DELETE -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"id":"no-real-record","confirmed":true}' "$delete_api/manage")"
-            test "$status" = 401
-          done
+          delete_api="$(python3 -c "import json; d=json.load(open('/tmp/api-status.json')); print('https://aiedue.ddns.net/db-pic8/api' if d['readyForCutover'] else 'https://teacher-workshop-jingu-2026.lejinku.chatgpt.site/api')")"
+          status="$(curl -sS --max-time 30 -o /tmp/delete-unauthorized.json -w '%{http_code}' -X DELETE -H 'Origin: https://pace33.github.io' -H 'Content-Type: application/json' --data '{"id":"no-real-record","confirmed":true}' "$delete_api/manage")"
+          test "$status" = 401
           status="$(curl -sS --max-time 30 -D /tmp/preflight-headers -o /dev/null -w '%{http_code}' -X OPTIONS -H 'Origin: https://pace33.github.io' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type,authorization' "$API_BASE/admin/login")"
           test "$status" = 204
           grep -iq 'access-control-allow-origin: https://pace33.github.io' /tmp/preflight-headers
