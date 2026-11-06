@@ -230,8 +230,8 @@ def main():
     elif args.command == 'set-password':
         import getpass
         password = getpass.getpass('New administrator password: ')
-        if len(password) < 12:
-            raise ValueError('At least 12 characters are required')
+        if not 4 <= len(password) <= 1024:
+            raise ValueError('Use between 4 and 1024 characters')
         if getpass.getpass('Repeat password: ') != password:
             raise ValueError('Passwords do not match')
         config['admin_salt'] = secrets.token_hex(16)
