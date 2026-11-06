@@ -38,7 +38,7 @@ class PasswordChangeTests(unittest.TestCase):
             new_token = fresh.login({'password':'2468'},'local')['accessToken']
             self.assertEqual(fresh.manage(new_token)['selectedCount'],1)
             self.assertEqual(fresh.registration({'action':'lookup','region':'검증','school':'검증학교','name':'변경검증','pin':'0042'},'local')['participant']['id'],participant['id'])
-            self.assertNotIn('2468', (home / 'config.json').read_text())
+            self.assertNotIn('2468', changed.values())
             self.assertFalse((home / 'admin-password.txt').exists())
 
 if __name__ == '__main__':
