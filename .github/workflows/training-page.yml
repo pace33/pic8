@@ -45,7 +45,7 @@ jobs:
           done
           grep -Fq 'data-api.js?v=aiedue-fresh-start-v2' /tmp/pic8-index.html
           grep -Fq 'data-api.js?v=aiedue-fresh-start-v2' /tmp/pic8-manage.html
-          grep -Fq 'app.js?v=20261106-fresh-start-v2' /tmp/pic8-index.html
+          grep -Fq 'app.js?v=20261106-clean-v1' /tmp/pic8-index.html
           grep -Fq 'admin.js?v=20261106-fresh-start-v2' /tmp/pic8-manage.html
           grep -Fq "$API_BASE" /tmp/pic8-data-api.js
           ! grep -Fq 'chatgpt.site' /tmp/pic8-data-api.js
